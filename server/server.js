@@ -2,6 +2,8 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import jwt from "jsonwebtoken";
+import { createServer } from "http";
+import { Server } from "socket.io";
 import { verifyToken } from "./middleware/auth.js";
 
 const app = express();
@@ -31,30 +33,54 @@ app.post("/auth/login", (req, res) => {
 // A normal protected route (unchanged, uses the HTTP verifyToken).
 app.get("/api/me", verifyToken, (req, res) => res.json({ user: req.user }));
 
-/* =====================================================================
-   YOUR WORK (Tasks 1-2):
-   1. npm install socket.io
-   2. Wrap this Express app with an HTTP server and attach Socket.io:
-        import { createServer } from "http";
-        import { Server } from "socket.io";
-        const httpServer = createServer(app);
-        const io = new Server(httpServer, {
-          cors: { origin: "http://localhost:5173", credentials: true },
-        });
-   3. (Task: auth) io.use((socket, next) => { ... }) verify the JWT from
-      socket.handshake.auth.token, store the payload on socket.data.user.
-   4. (Task: rooms) io.on("connection", (socket) => {
-        socket.on("room:join", (roomId) => socket.join(roomId));
-        socket.on("chat:message", ({ roomId, text }) => {
-          io.to(roomId).emit("chat:message", { ...message... });
-        });
-      });
-   5. Replace app.listen below with httpServer.listen so Socket.io actually starts.
-   ===================================================================== */
+// 1. Create HTTP server and attach Socket.io instance
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: { origin: "http://localhost:5173", credentials: true },
+});
 
+// 2. Task 2: Authenticate sockets with JWT middleware
+io.use((socket, next) => {
+  const token = socket.handshake.auth?.token;
+
+  if (!token) {
+    return next(new Error("Authentication error: Token missing"));
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.data.user = decoded; // attach payload { userId, name } to socket
+    next();
+  } catch (err) {
+    next(new Error("Authentication error: Invalid or expired token"));
+  }
+});
+
+// 3. Handle connections and room events
+io.on("connection", (socket) => {
+  // Join room event
+  socket.on("room:join", (roomId) => {
+    socket.join(roomId);
+  });
+
+  // Chat message event
+  socket.on("chat:message", ({ roomId, text }) => {
+    const message = {
+      id: Date.now().toString(),
+      text,
+      sender: socket.data.user, // Attach authenticated user details
+      createdAt: new Date().toISOString(),
+    };
+
+    // Broadcast message to all sockets in the specific room
+    io.to(roomId).emit("chat:message", message);
+  });
+});
+
+// 4. Start the server via httpServer.listen
 const PORT = process.env.PORT ?? 3001;
-app.listen(PORT, () => {
+httpServer.listen(PORT, () => {
   console.log(`Server on http://localhost:${PORT}`);
   console.log("  POST /auth/login");
-  console.log("  Socket.io: NOT set up yet - that is your job.");
+  console.log("  Socket.io: Ready and listening");
 });
