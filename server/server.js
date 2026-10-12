@@ -64,17 +64,16 @@ io.on("connection", (socket) => {
   });
 
   // Chat message event
-  socket.on("chat:message", ({ roomId, text }) => {
-    const message = {
-      id: Date.now().toString(),
-      text,
-      sender: socket.data.user, // Attach authenticated user details
-      createdAt: new Date().toISOString(),
-    };
+socket.on("chat:message", ({ roomId, text }) => {
+  const message = {
+    id: Date.now().toString(),
+    text,
+    user: socket.data.user.name, // or user: socket.data.user
+    createdAt: new Date().toISOString(),
+  };
 
-    // Broadcast message to all sockets in the specific room
-    io.to(roomId).emit("chat:message", message);
-  });
+  io.to(roomId).emit("chat:message", message);
+});
 });
 
 // 4. Start the server via httpServer.listen
